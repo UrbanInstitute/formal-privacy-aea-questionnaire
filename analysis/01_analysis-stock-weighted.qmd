@@ -1,0 +1,1117 @@
+---
+title: "Analyze AEA Survey with Weights"
+author-title: "Authors"
+authors: "Aaron R. Williams and Joshua Snoke"
+affiliation: "Urban Institute and RAND Corp."
+date: today
+format:
+  html:
+    theme: www/urbn.scss
+    self-contained: true
+    code-fold: true
+    code-line-numbers: true
+    html-math-method: katex
+    df-print: paged
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    number-depth: 3
+    highlight-style: pygments
+#bibliography: references.bib
+execute: 
+  warning: false
+  message: false
+  fig-width: 6.5
+  fig-hieght: 4
+editor_options: 
+  chunk_output_type: console
+---
+
+# Stock Analysis
+
+```{r}
+library(freqtables)
+library(quantreg)
+library(here)
+library(srvyr)
+library(tidyverse)
+library(urbnthemes)
+library(scales)
+
+source(here('R', 'make_analysis_data.R'))
+
+options(scipen = 999)
+
+set_urbn_defaults(style = "print")
+
+```
+
+```{r opts, echo = FALSE}
+knitr::opts_chunk$set(
+  fig.path = "../figures/"
+)
+```
+
+
+```{r results = "hide"}
+aea_analysis_weighted <- read_csv(here("data", "aea_analysis_weighted.csv"))
+
+aea_weighted <- aea_analysis_weighted %>%
+  as_survey(weights = final_weights)
+
+```
+
+## Section 1
+
+We drop missing values after calculating proportions for these questions. Starting in section 2, we drop missing values before calculating proportions. 
+
+### Question 1
+
+1.1: Do you reside in the United States?
+
+```{r q1.1}
+aea_weighted %>%
+  group_by(Q1_1) %>%
+  summarize(survey_prop(vartype = "ci")) %>%
+  mutate(Q1_1 = factor(Q1_1, levels = c("Yes", "No"))) %>%
+  ggplot(aes(Q1_1, coef)) +
+  geom_col() +
+  scale_y_continuous(
+    labels = scales::percent,
+    expand = expansion(mult = c(0, 0.2))
+  ) +
+  labs(
+    title = "Do you reside in the United States?",
+    x = NULL,
+    y = NULL
+  ) +
+  remove_ticks()
+
+```
+
+```{r}
+aea_weighted %>%
+  group_by(Q1_1) %>%
+  summarize(survey_prop(vartype = "ci"))
+
+```
+
+1.2: Are you currently a student?
+
+```{r q1.2}
+aea_weighted %>%
+  group_by(Q1_2) %>%
+  summarize(n(), survey_prop(vartype = "ci")) %>%
+  filter(!is.na(Q1_2)) %>%
+  mutate(Q1_2 = factor(Q1_2, levels = c("Yes", "No"))) %>%
+  ggplot(aes(Q1_2, coef)) +
+  geom_col() +
+  scale_y_continuous(
+    labels = scales::percent,
+    expand = expansion(mult = c(0, 0.2))
+  ) +
+  labs(
+    title = "Are You Currently a Student?",
+    x = NULL,
+    y = NULL
+  ) +
+  remove_ticks()
+
+```
+
+
+```{r}
+aea_weighted %>%
+  group_by(Q1_2) %>%
+  summarize(n(), survey_prop(vartype = "ci"))
+
+```
+
+1.3: What is the highest degree or level of school you have completed?
+
+```{r q1.3}
+aea_weighted %>%
+  group_by(Q1_3) %>%
+  summarize(n(), survey_prop(vartype = "ci")) %>%
+  slice(1:5) %>%
+  mutate(Q1_3 = fct_recode(
+    Q1_3, 
+    `High school or General\nEducational Development (GED)` = 
+      "High school or General Educational Development (GED)")
+  ) %>%  
+  ggplot(aes(coef, Q1_3)) +
+  geom_col() +
+  scale_x_continuous(
+    labels = scales::percent,
+    expand = expansion(mult = c(0, 0.2))
+  ) +
+  labs(
+    title = "What is the highest degree or level of school you have completed?",
+    x = NULL,
+    y = NULL
+  ) +
+  theme(panel.grid = element_blank())
+
+```
+
+```{r}
+aea_weighted %>%
+  group_by(Q1_3) %>%
+  summarize(n(), survey_prop(vartype = "ci"))
+
+```
+
+1.4: In what year did you finish your highest degree or level of school?
+
+```{r q1.4}
+missing_q1.4 <- sum(is.na(pull(aea_weighted, Q1_4)))
+
+aea_weighted %>%
+  group_by(Q1_4) %>%
+  summarize(n(), survey_prop(vartype = "ci")) %>%
+  filter(!is.na(Q1_4)) %>%
+  mutate(Q1_4 = factor(Q1_4, levels = c("Early-Career", "Mid-Career", "Late-Career"))) %>%
+  ggplot(aes(Q1_4, coef)) +
+  geom_col() +
+  scale_y_continuous(
+    labels = scales::percent,
+    expand = expansion(mult = c(0, 0.2))
+  ) +
+  labs(
+    title = "In what year did you finish your highest degree or level of school?",
+    x = NULL,
+    y = NULL,
+    caption = paste(missing_q1.4, "respondents did not answer")
+  )
+
+```
+
+1.5: Which of the following best describes your most recent primary employer?
+
+```{r q1.5}
+missing_q1.5 <- sum(is.na(pull(aea_weighted, Q1_5)))
+
+aea_weighted %>%
+  group_by(Q1_5) %>%
+  summarize(n(), survey_prop(vartype = "ci")) %>%
+  filter(!is.na(Q1_5)) %>%
+  ggplot(aes(coef, Q1_5)) +
+  geom_col() +
+  scale_x_continuous(
+    labels = scales::percent,
+    expand = expansion(mult = c(0, 0.2))
+  ) +
+  labs(
+    title = "Which of the following best describes your most recent primary employer?",
+    x = NULL,
+    y = NULL,
+    caption = paste(missing_q1.5, "respondents did not answer")
+  ) +
+  theme(panel.grid = element_blank())
+
+```
+
+```{r}
+aea_weighted %>%
+  group_by(Q1_5) %>%
+  summarize(n(), survey_prop(vartype = "ci"))
+
+```
+
+1.6: Have you refereed at least one peer-reviewed journal article in the past five years?
+
+```{r q1.6}
+missing_q1.6 <- sum(is.na(pull(aea_weighted, Q1_6)))
+
+aea_weighted %>%
+  group_by(Q1_6) %>%
+  summarize(n(), survey_prop(vartype = "ci")) %>%
+  filter(!is.na(Q1_6)) %>%
+  ggplot(aes(Q1_6, coef)) +
+  geom_col() +
+  scale_y_continuous(
+    labels = scales::percent,
+    expand = expansion(mult = c(0, 0.2))
+  ) +
+  labs(
+    title = "Have you refereed at least one peer-reviewed journal article in the past five years?",
+    x = NULL,
+    y = NULL,
+    caption = paste(missing_q1.6, "respondents did not answer")
+  ) +
+  remove_ticks()
+
+```
+
+```{r}
+aea_weighted %>%
+  group_by(Q1_6) %>%
+  summarize(n(), survey_prop(vartype = "ci"))
+
+```
+
+## Section 2
+
+Starting in section 2, we drop missing values before calculating proportions. 
+
+### Question 1 {.tabset}
+
+Q2_1 - 2.1: Please rate the following methods based on how frequently you have used the method on cross-sectional data in the past year:
+
+#### Visualization
+
+```{r q2.1}
+responses <- c("Always", "Frequently")
+
+aea_weighted %>%
+  summarize(
+    `Multiple linear regression` = survey_mean(Q2_1_1 %in% responses, na.rm = TRUE),
+    `Weighted multiple linear regression` = survey_mean(Q2_1_2 %in% responses, na.rm = TRUE),
+    `Tobit` = survey_mean(Q2_1_3 %in% responses, na.rm = TRUE),
+    `Probit/logit regression` = survey_mean(Q2_1_4 %in% responses, na.rm = TRUE),
+    `Regression discontinuity or kink design` = survey_mean(Q2_1_5 %in% responses, na.rm = TRUE),
+    `Merging multiple data sources` = survey_mean(Q2_1_6 %in% responses, na.rm = TRUE),
+    `Two Stage Least Squares (2SLS)` = survey_mean(Q2_1_7 %in% responses, na.rm = TRUE)
+  ) %>%
+  select(!ends_with("_se")) %>%
+  pivot_longer(
+    everything(),
+    names_to = "Method", 
+    values_to = "Proportion 'Always' or 'Frequently'"
+  ) %>%
+  mutate(Method = fct_reorder(Method, `Proportion 'Always' or 'Frequently'`)) %>%
+  ggplot(aes(x = `Proportion 'Always' or 'Frequently'`, y = Method)) +
+  geom_col() +
+  geom_text(aes(label = label_percent(accuracy = 0.1)(`Proportion 'Always' or 'Frequently'`), hjust = -0.3)) +
+  scale_x_continuous(
+    labels = scales::percent,
+    limits = c(0, 0.8)
+  ) +
+  labs(
+    title = "Multiple Linear Regression Is the Most Popular Method",
+    subtitle = 'Percentage of Respondents Rating Each Method with "Always" or "Frequently"',
+    x = NULL,
+    y = NULL,
+    caption = "147 respondents did not answer"
+  ) +
+  theme(panel.grid = element_blank())
+
+```
+
+#### Table
+
+```{r}
+survey_count(aea_weighted, missing_all = is.na(Q2_1_1) & is.na(Q2_1_2) & is.na(Q2_1_3) & is.na(Q2_1_4) & is.na(Q2_1_5) & is.na(Q2_1_6) & is.na(Q2_1_7))
+
+```
+
+Multiple linear regression
+
+```{r}
+survey_count(aea_weighted, Q2_1_1)
+
+```
+
+Weighted multiple linear regression
+
+```{r}
+survey_count(aea_weighted, Q2_1_2)
+
+```
+
+Tobit
+
+```{r}
+survey_count(aea_weighted, Q2_1_3)
+
+```
+
+Probit/logit regression
+
+```{r}
+survey_count(aea_weighted, Q2_1_4)
+
+```
+
+Regression discontinuity or kink design
+
+```{r}
+survey_count(aea_weighted, Q2_1_5)
+
+```
+
+Merging multiple data sources
+
+```{r}
+survey_count(aea_weighted, Q2_1_6)
+
+```
+
+Two Stage Least Squares (2SLS)
+
+```{r}
+survey_count(aea_weighted, Q2_1_7)
+
+```
+
+### Question 2
+
+See analysis-text.qmd.
+
+### Question 3 {.tabset}
+
+2.3: Please rate the following information obtained from multiple linear regression based on its importance for your work:
+
+#### Visualization
+
+```{r q2.3}
+responses <- c("Very important", "Important")
+
+aea_weighted %>%
+  summarize(
+    `Estimated coefficients` = survey_mean(Q2_3_1 %in% responses, na.rm = TRUE),
+    `Estimated standard errors, T-statistics for\ncoefficients, or P-values for coefficients` = mean(Q2_3_2 %in% responses, na.rm = TRUE),
+    `Adjusted or multiple R-Squared of\nthe regression line` = survey_mean(Q2_3_3 %in% responses, na.rm = TRUE),
+    `F-statistic on the regression` = survey_mean(Q2_3_4 %in% responses, na.rm = TRUE),
+    `Residuals` = mean(Q2_3_5 %in% responses, na.rm = TRUE),
+    `Residual standard error` = survey_mean(Q2_3_6 %in% responses, na.rm = TRUE),
+    `Predicted values` = survey_mean(Q2_3_7 %in% responses, na.rm = TRUE),
+    `Average predicted values for a given\ncharacteristic or marginal predictions` = survey_mean(Q2_3_8 %in% responses, na.rm = TRUE)
+  ) %>%
+  select(!ends_with("_se")) %>%
+  pivot_longer(
+    everything(),
+    names_to = "Method", 
+    values_to = "Proportion 'Very important' or 'Important'"
+  ) %>%
+  mutate(Method = fct_reorder(Method, `Proportion 'Very important' or 'Important'`)) %>%
+  ggplot(aes(x = `Proportion 'Very important' or 'Important'`, y = Method)) +
+  geom_col() +
+  geom_text(aes(label = label_percent(accuracy = 0.1)(`Proportion 'Very important' or 'Important'`), hjust = -0.3)) +  
+  scale_x_continuous(
+    labels = scales::percent,
+    limits = c(0, 0.82)
+  ) +
+  labs(
+    title = "Coefficient-Level Information Is the Most Important",
+    subtitle = 'Proportion of Respondents Rating Each Component with "Very important" or "Important"',
+    x = NULL,
+    y = NULL,
+    caption = "170 respondents did not answer"
+  ) +
+  theme(panel.grid = element_blank())
+
+```
+
+#### Table
+
+```{r}
+survey_count(aea_weighted, missing_all = is.na(Q2_3_1) & is.na(Q2_3_2) & is.na(Q2_3_3) & is.na(Q2_3_4) & is.na(Q2_3_5) & is.na(Q2_3_6) & is.na(Q2_3_7) & is.na(Q2_3_8))
+
+```
+
+Estimated coefficients
+
+```{r}
+survey_count(aea_weighted, Q2_3_1)
+
+```
+
+Estimated standard errors, T-statistics for coefficients, or P-values for coefficients
+
+```{r}
+survey_count(aea_weighted, Q2_3_2)
+
+```
+
+Adjusted or multiple R-Squared of the regression line
+
+```{r}
+survey_count(aea_weighted, Q2_3_3)
+
+```
+
+F-statistic on the regression
+
+```{r}
+survey_count(aea_weighted, Q2_3_4)
+
+```
+
+Residuals
+
+```{r}
+survey_count(aea_weighted, Q2_3_5)
+
+```
+
+Residual standard error
+
+```{r}
+survey_count(aea_weighted, Q2_3_6)
+
+```
+
+Predicted values
+
+```{r}
+survey_count(aea_weighted, Q2_3_7)
+
+```
+
+Average predicted values for a given characteristic or marginal predictions
+
+```{r}
+survey_count(aea_weighted, Q2_3_8)
+
+```
+
+### Question 5
+
+See analysis-text.qmd.
+
+## Section 3
+
+### Question 1
+
+Q3_1 - 3.1: Please rate your familiarity with the concept of differential privacy.
+
+```{r q3.1}
+missing_q3.1 <- sum(is.na(pull(aea_weighted, Q3_1)))
+
+aea_weighted %>%
+  filter(!is.na(Q3_1)) %>%
+  group_by(Q3_1) %>%
+  summarize(n(), survey_prop(vartype = "ci")) %>%
+  mutate(Q3_1 = fct_recode(
+    Q3_1, 
+    `Have heard the term but am\nnot familiar with any details` = 
+      "Have heard the term but am not familiar with any details",
+    `Have read a blog, newspaper, or non-academic\nreport or discussion on the topic` = 
+      "Have read a blog, newspaper, or non-academic report or discussion on the topic",
+    `Feel confident implementing\nthese methods on my own` = 
+      "Feel confident implementing these methods on my own")
+  ) %>%
+  mutate(Q3_1 = fct_rev(Q3_1)) %>%
+  ggplot(aes(coef, Q3_1)) +
+  geom_col() +
+  geom_text(aes(label = label_percent(accuracy = 0.1)(coef), hjust = -0.1)) +
+  scale_x_continuous(
+    labels = scales::percent,
+    expand = expansion(mult = c(0, 0.2))
+  ) + 
+  labs(
+    title = "Most Respondents Knew Nothing about Differential Privacy",
+    subtitle = "Text: Please rate your familiarity with the concept of differential privacy",
+    x = NULL,
+    y = NULL,
+    caption = paste(missing_q3.1, "respondents did not answer")
+  ) +
+  theme(panel.grid = element_blank())
+
+aea_weighted %>%
+  filter(!is.na(Q3_1)) %>%
+  group_by(Q3_1) %>%
+  summarize(n(), survey_prop(vartype = "ci"))
+
+```
+
+```{r q3.1-primary-employer, fig.width=10}
+missing_q3.1_employer <- sum(is.na(pull(aea_weighted, Q3_1)) | is.na(pull(aea_weighted, Q1_5)))
+
+aea_weighted %>%
+  filter(
+    !is.na(as.character(Q3_1)),
+    !is.na(as.character(Q1_5))
+  ) %>%  
+  mutate(
+    Q1_5 = fct_recode(
+      Q1_5,
+      `Industry (For or Not-for profit)` = "For-profit business",
+      `Industry (For or Not-for profit)` = "Not-for-profit",
+      `Government` = "Federal government",
+      `Government` = "State or local government"
+    )
+  ) %>%
+  group_by(Q3_1, Q1_5) %>%
+  summarize(n(), survey_prop(vartype = "ci")) %>%
+  ungroup() %>%
+  mutate(Q3_1 = fct_recode(
+    Q3_1, 
+    `Have heard the term but am\nnot familiar with any details` = 
+      "Have heard the term but am not familiar with any details",
+    `Have read a blog, newspaper, or non-academic\nreport or discussion on the topic` = 
+      "Have read a blog, newspaper, or non-academic report or discussion on the topic",
+    `Feel confident implementing\nthese methods on my own` = 
+      "Feel confident implementing these methods on my own")
+  ) %>%
+  mutate(Q3_1 = fct_rev(Q3_1)) %>%
+  ggplot(aes(coef, Q3_1)) +
+  geom_col() +
+  geom_text(aes(label = label_percent(accuracy = 0.1)(coef), hjust = -0.2)) + 
+  scale_x_continuous(
+    labels = scales::percent,
+    expand = expansion(mult = c(0, 0.2))
+  ) + 
+  facet_wrap(~Q1_5, scales = "free_x") +
+  labs(
+    title = "Most Respondents Knew Nothing about Differential Privacy",
+    subtitle = "Text: Please rate your familiarity with the concept of differential privacy",
+    x = NULL,
+    y = NULL,
+    caption = paste(missing_q3.1_employer, "respondents did not answer")
+  ) +
+  theme(
+    panel.grid = element_blank(),
+    panel.spacing = unit(2, "lines")
+  )
+
+```
+
+```{r}
+aea_weighted %>%
+  filter(
+    !is.na(as.character(Q3_1)),
+    !is.na(as.character(Q1_5))
+  ) %>%  
+  mutate(
+    Q1_5 = fct_recode(
+      Q1_5,
+      `Industry (For or Not-for profit)` = "For-profit business",
+      `Industry (For or Not-for profit)` = "Not-for-profit",
+      `Government` = "Federal government",
+      `Government` = "State or local government"
+    )
+  ) %>%
+  group_by(Q3_1, Q1_5) %>%
+  summarize(n(), survey_prop(vartype = "ci")) %>%
+  ungroup()
+
+```
+
+### Question 2
+
+Q3_2 - 3.2: Please rate your familiarity with the concept of formal privacy
+
+```{r q3.2}
+missing_q3.2 <- sum(is.na(pull(aea_weighted, Q3_2)))
+
+aea_weighted %>%
+  filter(!is.na(Q3_2)) %>%
+  group_by(Q3_2) %>%
+  summarize(n(), survey_prop(vartype = "ci")) %>%
+  mutate(Q3_2 = fct_recode(
+    Q3_2,
+    `Have heard the term in relation to Differential\nPrivacy, but I do not know the difference` =
+      "Have heard the term in relation to Differential Privacy, but I do not know the difference",
+    `Am familiar with the concept and the distinction\nfrom differential privacy` = 
+      "Am familiar with the concept and the distinction from differential privacy")
+  ) %>%
+  mutate(Q3_2 = fct_rev(Q3_2)) %>%
+  ggplot(aes(coef, Q3_2)) +
+  geom_col() +
+  geom_text(aes(label = label_percent(accuracy = 0.01)(coef), hjust = -0.2)) +
+  scale_x_continuous(
+    labels = scales::percent,
+    expand = expansion(mult = c(0, 0.2))
+  ) + 
+  labs(
+    title = "Most Respondents Knew Nothing about Formal Privacy",
+    subtitle = "Text: Please rate your familiarity with the concept of formal privacy",
+    x = NULL,
+    y = NULL,
+    caption = paste(missing_q3.2, "respondents did not answer")
+  ) +
+  theme(panel.grid = element_blank())
+
+```
+
+```{r}
+aea_weighted %>%
+  filter(!is.na(Q3_2)) %>%  
+  group_by(Q3_2) %>%
+  summarize(n(), survey_prop(vartype = "ci"))
+
+```
+
+### Question 3
+
+Q3_3 - 3.3: What share of economists you know in your professional circles have discussed the US Census Bureau's adoption of differential privacy/formal privacy for the 2020 Census?
+
+```{r q3.3}
+missing_q3.3 <- sum(is.na(pull(aea_weighted, Q3_3)))
+
+aea_weighted %>%
+  filter(!is.na(Q3_3)) %>%  
+  group_by(Q3_3) %>%
+  summarize(n(), survey_prop(vartype = "ci")) %>%
+  mutate(Q3_3 = fct_rev(Q3_3)) %>%
+  ggplot(aes(coef, Q3_3)) +
+  geom_col() +
+  geom_text(aes(label = label_percent(accuracy = 0.01)(coef), hjust = -0.2)) +
+  scale_x_continuous(
+    labels = scales::percent,
+    expand = expansion(mult = c(0, 0.2))
+  ) + 
+  labs(
+    title = "Most Economists Have Not Discussed Differential Privacy and the 2020 Census",
+    subtitle = "Text: What share of economists you know in your professional circles have discussed the US Census Bureau's\nadoption of differential privacy/formal privacy for the 2020 Census?",
+    x = NULL,
+    y = NULL,
+    caption = paste(missing_q3.3, "respondents did not answer")
+  ) +
+  theme(panel.grid = element_blank())
+
+```
+
+### Question 4
+
+Q3_4 - 3.4: What share of economists you know in your professional circles work with differential privacy/formal privacy methods?
+
+```{r q3.4}
+missing_q3.4 <- sum(is.na(pull(aea_weighted, Q3_4)))
+
+aea_weighted %>%
+  filter(!is.na(Q3_4)) %>%  
+  group_by(Q3_4) %>%
+  summarize(n(), survey_prop(vartype = "ci")) %>%
+  mutate(Q3_4 = fct_rev(Q3_4)) %>%
+  ggplot(aes(coef, Q3_4)) +
+  geom_col() +
+  geom_text(aes(label = label_percent(accuracy = 0.01)(coef), hjust = -0.2)) +
+  scale_x_continuous(
+    labels = scales::percent,
+    expand = expansion(mult = c(0, 0.2))
+  ) + 
+  labs(
+    title = "Most Economists Don't Work with Differential Privacy",
+    subtitle = "Text: What share of economists you know in your professional circles work with differential privacy/formal\nprivacy methods?",
+    x = NULL,
+    y = NULL,
+    caption = paste(missing_q3.4, "respondents did not answer")
+  ) +
+  theme(panel.grid = element_blank())
+
+```
+
+### Question 5
+
+Q3_5 - 3.5: I do not have an opinion on Differential Privacy/formal privacy
+
+```{r q3.5}
+missing_q3.5 <- sum(is.na(pull(aea_weighted, Q3_5)))
+
+aea_weighted %>%
+  filter(!is.na(Q3_5)) %>%  
+  group_by(Q3_5) %>%
+  summarize(n(), survey_prop(vartype = "ci")) %>%
+  mutate(Q3_5 = fct_rev(Q3_5)) %>%
+  ggplot(aes(coef, Q3_5)) +
+  geom_col() +
+  geom_text(aes(label = label_percent(accuracy = 0.1)(coef), hjust = -0.2)) + 
+  scale_x_continuous(
+    labels = scales::percent,
+    expand = expansion(mult = c(0, 0.2))
+  ) +   
+  labs(
+    title = "Most Respondents Have no Opinion on Differential Privacy",
+    subtitle = "Text: I do not have an opinion on Differential Privacy/formal privacy",
+    x = NULL,
+    y = NULL,
+    caption = paste(missing_q3.5, "respondents did not answer")
+  ) +
+  theme(panel.grid = element_blank())
+
+```
+
+```{r}
+aea_weighted %>%
+  filter(!is.na(Q3_5)) %>%   
+  group_by(Q3_5) %>%
+  summarize(n(), survey_prop(vartype = "ci")) 
+
+```
+
+### Question 6
+
+Q3_6 - Differential privacy/formal privacy is a new approach to protecting privacy that seems to be mostly popular among computer scientists.
+
+```{r q3.6}
+missing_q3.6 <- sum(is.na(pull(aea_weighted, Q3_6)))
+
+aea_weighted %>%
+  filter(!is.na(Q3_6)) %>%  
+  group_by(Q3_6) %>%
+  summarize(n(), survey_prop(vartype = "ci")) %>%
+  mutate(Q3_6 = fct_rev(Q3_6)) %>%
+  ggplot(aes(coef, Q3_6)) +
+  geom_col() +
+  geom_text(aes(label = label_percent(accuracy = 0.1)(coef), hjust = -0.2)) +  
+  scale_x_continuous(
+    labels = scales::percent,
+    expand = expansion(mult = c(0, 0.2))
+  ) +   
+  labs(
+    title = "Most Economists think Differential Privacy is Popular with Computer Scientists",
+    subtitle = "Text: Differential privacy/formal privacy is a new approach to protecting privacy that seems to be mostly popular\namong computer scientists.",
+    x = NULL,
+    y = NULL,
+    caption = paste(missing_q3.6, "respondents did not answer")
+  ) +
+  theme(panel.grid = element_blank())
+
+```
+
+### Question 7
+
+Q3_7 - Differential privacy/formal privacy is an approach to protecting privacy that distorts the results more than necessary given the actual risks.
+
+```{r q3.7}
+missing_q3.7 <- sum(is.na(pull(aea_weighted, Q3_7)))
+
+aea_weighted %>%
+  filter(!is.na(Q3_7)) %>%  
+  group_by(Q3_7) %>%
+  summarize(n(), survey_prop(vartype = "ci")) %>%
+  mutate(Q3_7 = fct_rev(Q3_7)) %>%
+  ggplot(aes(coef, Q3_7)) +
+  geom_col() +
+  geom_text(aes(label = label_percent(accuracy = 0.1)(coef), hjust = -0.2)) +  
+  scale_x_continuous(
+    labels = scales::percent,
+    expand = expansion(mult = c(0, 0.2))
+  ) +   
+  labs(
+    title = "Economists with Opinions About Differential Privacy Appear Skeptical of\nDifferential Privacy",
+    subtitle = "Text: Differential privacy/formal privacy is an approach to protecting privacy that distorts the results more than\nnecessary given the actual risks",
+    x = NULL,
+    y = NULL,
+    caption = paste(missing_q3.7, "respondents did not answer")
+  ) +
+  theme(panel.grid = element_blank())
+
+```
+
+### Question 8
+
+Q3_8 - Differential privacy/formal privacy is a needed approach to preserve privacy in the face of expanding disclosure risks that current methods are unable to address.
+
+```{r q3.8}
+missing_q3.8 <- sum(is.na(pull(aea_weighted, Q3_8)))
+
+aea_weighted %>%
+  filter(!is.na(Q3_8)) %>%  
+  group_by(Q3_8) %>%
+  summarize(n(), survey_prop(vartype = "ci")) %>%
+  mutate(Q3_8 = fct_rev(Q3_8)) %>%
+  ggplot(aes(coef, Q3_8)) +
+  geom_col() +
+  geom_text(aes(label = label_percent(accuracy = 0.1)(coef), hjust = -0.2)) + 
+  scale_x_continuous(
+    labels = scales::percent,
+    expand = expansion(mult = c(0, 0.2))
+  ) +   
+  labs(
+    title = "Economists with Opinions About Differential Privacy Appear Skeptical of\nDifferential Privacy",
+    subtitle = "Text: Differential privacy/formal privacy is a needed approach to preserve privacy in the face of expanding\ndisclosure risks that current methods are unable to address",
+    x = NULL,
+    y = NULL,
+    caption = paste(missing_q3.8, "respondents did not answer")
+  ) +
+  theme(panel.grid = element_blank())
+
+```
+
+## Section 4
+
+### Question 1
+
+What is the largest percentage of significance mismatch you would accept before...?
+
+```{r}
+aea_weighted %>%
+  group_by(is.na(Q4_1_1)) %>%
+  summarize(n())
+
+aea_weighted %>%
+  group_by(is.na(Q4_1_2)) %>%
+  summarize(n())
+
+probs <- c(0, 0.05, 0.25, 0.5, 0.75, 0.95, 1)
+
+aea_weighted %>%
+  summarize(
+    sig_mismatch = survey_quantile(Q4_1_1, quantiles = probs, na.rm = TRUE)
+  )
+
+aea_weighted %>%
+  summarize(
+    sig_mismatch = survey_quantile(Q4_1_2, quantiles = probs, na.rm = TRUE)
+  )
+
+```
+
+```{r q4.1}
+missing_q4.1 <- sum(is.na(pull(aea_weighted, Q4_1_1)) | is.na(pull(aea_weighted, Q4_1_2)))
+
+ggplot() +
+  geom_point(
+    data = aea_weighted$variables,
+    mapping = aes(Q4_1_1 / 100, Q4_1_2 / 100), 
+    alpha = 0.05
+  ) +
+  geom_point(
+    data = summarize(aea_weighted, 
+                     Q4_1_1 = survey_median(Q4_1_1, na.rm = TRUE), 
+                     Q4_1_2 = survey_median(Q4_1_2, na.rm = TRUE)),
+    mapping = aes(Q4_1_1 / 100, Q4_1_2 / 100), 
+    alpha = 0.5,
+    color = "#ec008b"
+  ) +  
+  scale_x_continuous(breaks = seq(0, 1, 0.1), labels = scales::percent_format(accuracy = 1)) +
+  scale_y_continuous(breaks = seq(0, 1, 0.1), labels = scales::percent_format(accuracy = 1)) +
+  scatter_grid() +
+  coord_equal() +
+  labs(
+    title = "What is the largest percentage of significance mismatch you would\naccept before...",
+    subtitle = "Median responses in magenta",
+    x = "sacrificing access to the administrative data",
+    y = "adversely responding to a journal submission",
+    caption = paste(missing_q4.1, "respondents did not answer")
+  )
+
+```
+
+### Question 2
+
+What is the largest percentage of sign mismatch you would accept before...?
+
+*This is more conservative than significance, which seems good.*
+
+```{r}
+aea_weighted %>%
+  group_by(is.na(Q4_2_1)) %>%
+  summarize(n())
+
+aea_weighted %>%
+  group_by(is.na(Q4_2_2)) %>%
+  summarize(n())
+
+probs <- c(0, 0.05, 0.25, 0.5, 0.75, 0.95, 1)
+
+aea_weighted %>%
+  summarize(
+    sign_mismatch = survey_quantile(Q4_2_1, quantile = probs, na.rm = TRUE)
+  )
+
+aea_weighted %>%
+  summarize(
+    sign_mismatch = survey_quantile(Q4_2_2, quantile = probs, na.rm = TRUE)
+  )
+
+```
+
+```{r q4.2}
+missing_q4.2 <- sum(is.na(pull(aea_weighted, Q4_2_1)) | is.na(pull(aea_weighted, Q4_2_2)))
+
+ggplot() +
+  geom_point(
+    data = aea_weighted$variables,
+    mapping = aes(Q4_2_1 / 100, Q4_2_2 / 100), 
+    alpha = 0.05
+  ) +
+  geom_point(
+    data = summarize(
+      aea_weighted, 
+      Q4_2_1 = survey_median(Q4_2_1, na.rm = TRUE), 
+      Q4_2_2 = survey_median(Q4_2_2, na.rm = TRUE)
+    ),
+    mapping = aes(Q4_2_1 / 100, Q4_2_2 / 100), 
+    alpha = 0.5,
+    color = "#ec008b"
+  ) +  
+  scale_x_continuous(breaks = seq(0, 1, 0.1), labels = scales::percent_format(accuracy = 1)) +
+  scale_y_continuous(breaks = seq(0, 1, 0.1), labels = scales::percent_format(accuracy = 1)) +  
+  scatter_grid() +
+  coord_equal() +
+  labs(
+    title = "What is the largest percentage of sign mismatch you would accept\nbefore...",
+    subtitle = "Median responses in magenta",    
+    x = "sacrificing access to the administrative data",
+    y = "adversely responding to a journal submission",
+    caption = paste(missing_q4.2, "respondents did not answer")
+  )
+
+```
+
+### Question 3
+
+What is the highest amount of absolute relative bias you would accept in an estimate before...?
+
+```{r}
+aea_weighted %>%
+  group_by(is.na(Q4_3_1)) %>%
+  summarize(n())
+
+aea_weighted %>%
+  group_by(is.na(Q4_3_2)) %>%
+  summarize(n())
+
+probs <- c(0, 0.05, 0.25, 0.5, 0.75, 0.95, 1)
+
+aea_weighted %>%
+  summarize(
+    abs_relative_error = survey_quantile(Q4_3_1, quantiles = probs, na.rm = TRUE)
+  )
+
+aea_weighted %>%
+  summarize(
+    abs_relative_error = survey_quantile(Q4_3_2, quantiles = probs, na.rm = TRUE)
+  )
+
+```
+
+```{r q4.3}
+missing_q4.3 <- sum(is.na(pull(aea_weighted, Q4_3_1)) | is.na(pull(aea_weighted, Q4_3_2)))
+
+ggplot() +
+  geom_point(
+    data = aea_weighted$variables,
+    mapping = aes(Q4_3_1 / 100, Q4_3_2 / 100), 
+    alpha = 0.05
+  ) +
+  geom_point(
+    data = summarize(
+      aea_weighted, 
+      Q4_3_1 = survey_median(Q4_3_1, na.rm = TRUE), 
+      Q4_3_2 = survey_median(Q4_3_2, na.rm = TRUE)
+    ),
+    mapping = aes(Q4_3_1 / 100, Q4_3_2 / 100), 
+    alpha = 0.5,
+    color = "#ec008b"
+  ) +  
+  scale_x_continuous(
+    breaks = seq(0, 1.6, 0.2), 
+    expand = expansion(mult = c(0, 0.15)), 
+    labels = scales::percent_format(accuracy = 1)
+  ) +
+  scale_y_continuous(
+    breaks = seq(0, 1.6, 0.2), 
+    expand = expansion(mult = c(0, 0.15)), 
+    labels = scales::percent_format(accuracy = 1)
+  ) +  
+  scatter_grid() +
+  coord_equal() +
+  labs(
+    title = "What is the highest amount of absolute relative bias you would\naccept in an estimate before...",
+    subtitle = "Median responses in magenta",    
+    x = "sacrificing access to the administrative data",
+    y = "adversely responding to a journal submission",
+    caption = paste(missing_q4.3, "respondents did not answer")
+  )
+
+```
+
+### Question 4
+
+What is the largest confidence interval ratio you would accept in an estimate before...?
+
+```{r}
+aea_weighted %>%
+  group_by(is.na(Q4_4_1)) %>%
+  summarize(n())
+
+aea_weighted %>%
+  group_by(is.na(Q4_4_2)) %>%
+  summarize(n())
+
+probs <- c(0, 0.05, 0.25, 0.5, 0.75, 0.95, 1)
+
+aea_weighted %>%
+  summarize(
+    ci_ratio = survey_quantile(Q4_4_1, quantiles = probs, na.rm = TRUE)
+  )
+
+aea_weighted %>%
+  summarize(
+    ci_ratio = survey_quantile(Q4_4_2, quantiles = probs, na.rm = TRUE)
+  )
+
+```
+
+```{r q4.4}
+missing_q4.4 <- sum(is.na(pull(aea_weighted, Q4_4_1)) | is.na(pull(aea_weighted, Q4_4_2)))
+
+ggplot() +
+  geom_point(
+    data = aea_weighted$variables,
+    mapping = aes(Q4_4_1, Q4_4_2), 
+    alpha = 0.05
+  ) +
+  geom_point(
+    data = summarize(
+      aea_weighted, 
+      Q4_4_1 = survey_median(Q4_4_1, na.rm = TRUE), 
+      Q4_4_2 = survey_median(Q4_4_2, na.rm = TRUE)
+    ),
+    mapping = aes(Q4_4_1, Q4_4_2), 
+    alpha = 0.5,
+    color = "#ec008b"
+  ) +  
+  scale_x_continuous(limits = c(0, 10)) +
+  scale_y_continuous(limits = c(0, 10)) +
+  scatter_grid() +
+  coord_equal() +
+  labs(
+    title = "What is the largest confidence interval ratio you would accept in\nan estimate before",
+    subtitle = "Median responses in magenta",    
+    x = "sacrificing access to the administrative data",
+    y = "adversely responding to a journal submission",
+    caption = paste(missing_q4.4, "respondents did not answer")
+  )
+
+```
+
+## Section 5
+
+### Question 1
+
+5.1: Suppose you gain access to administrative data for regression analysis, but your access is constrained by a privacy budget. How would you spend your privacy budget from the following choices?
+
+```{r q5.1}
+missing_q5.1 <- sum(is.na(pull(aea_weighted, Q5_1)))
+
+aea_weighted %>%
+  filter(!is.na(Q5_1)) %>%  
+  group_by(Q5_1) %>%
+  summarize(n(), survey_prop(vartype = "ci")) %>%
+  mutate(Q5_1 = fct_recode(
+    Q5_1,
+    `One regression specification with moderate noise\nand five robustness checks with more noise` =
+      "One regression specification with moderate noise and five robustness checks with more   noise")
+  ) %>%  
+  mutate(Q5_1 = fct_rev(Q5_1)) %>%
+  ggplot(aes(coef, Q5_1)) +
+  geom_col() +
+  geom_text(aes(label = label_percent(accuracy = 0.1)(coef)), hjust = -0.2) +
+  scale_x_continuous(
+    labels = scales::percent,
+    expand = expansion(mult = c(0, 0.2))
+  ) +
+  labs(
+    title = "Economists Want the Goldilocks Budget",
+    subtitle = "Text: Suppose you gain access to administrative data for regression analysis, but your access is constrained by a\nprivacy budget. How would you spend your privacy budget from the following choices?",
+    x = NULL,
+    y = NULL,
+    caption = paste(missing_q5.1, "respondents did not answer")
+  ) +
+  theme(panel.grid = element_blank())
+
+```
+
+## Software
+
+```{r}
+sessionInfo()
+
+```

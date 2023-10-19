@@ -1,0 +1,535 @@
+---
+title: "AEA Formal Privacy Questionnaire Text Analysis"
+author-title: "Authors"
+authors: "Aaron R. Williams"
+affiliation: "Urban Institute"
+date: today
+format:
+  html:
+    theme: www/urbn.scss
+    self-contained: true
+    code-fold: true
+    code-line-numbers: true
+    html-math-method: katex
+    df-print: paged
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    number-depth: 3
+    highlight-style: pygments
+#bibliography: references.bib
+execute: 
+  warning: false
+  message: false
+  fig-width: 6.5
+  fig-hieght: 4
+editor_options: 
+  chunk_output_type: console
+---
+
+This document contains analysis of open responses from two questions from a questionnaire sent to members of the American Economic Association. 
+
+First, we load needed libraries. 
+
+```{r}
+#| label: setup
+options(scipen = 999)
+
+library(tidyverse)
+library(qualtRics)
+library(urbnthemes)
+library(tidytext)
+library(SnowballC)
+library(igraph)
+library(ggraph)
+library(here)
+
+set_urbn_defaults(style = "print")
+
+```
+
+Second, we load the responses from Qualtrics. 
+
+```{r results = "hide"}
+#| label: load-questionnaire
+surveys <- all_surveys() 
+
+aea <- fetch_survey(surveyID = surveys$id[1])
+
+aea <- aea %>%
+  filter(DistributionChannel != "preview")
+
+```
+
+Third, we course dropped responses, which are not publicly available.
+
+```{r}
+source(here("R", "dropped_responses.R"))
+
+```
+
+# Strategy
+
+The full questionnaire is available [here](https://auth.urban.org/adfs/ls/?SAMLRequest=fZFRb4IwFIXf9ytI36GlCmojGDdjZuIyoriHvSy1Fm0CLfYWsp8%2FhjNzD%2FPxJvd85%2BSc6eyzKr1WWlBGJygMCPKkFuag9DFBu3zpj9EsfZgCr8qazRt30ht5biQ4bw4gretkT0ZDU0m7lbZVQu426wSdnKuBYSxMGJwbXjqrBATCVLg0R6VxG2IAg7%2BxFB9kwZvS%2BVAjb9Ghleauj3Ol8M43aOye68DYI%2BaHAnAJGHlLY4XsUyWo4CVI5K0WCfoIJ8MhDyMxjosJ3Y8GISFxEY1GZFQMiaBx9wYZB1Ct%2FBUCNHKlwXHtEkQJHfiE%2BmGcU8LImJEoIJPoHXmZNc4IUz4qfWmpsZoZDgqY5pUE5gTbzl%2FWjAaE7S9PwJ7zPPOz122OvLdr2%2FS77a5%2FDazv9z6q%2FvFFab8G6%2FPaG%2F19Ob%2FOhdJ%2Fx5niG3J6uf6unn4B&RelayState=LNS-_ff25b2627200ee98ddd6c560e1b93f79). 
+
+Question 2.2 instructs respondents to "Please add any methods not listed above that you use for a typical research project on cross-sectional administrative data:". Question 2.5 instructs respondents to "Please add any linear regression information that is not listed above:". 
+
+We adopt a similar strategy for both questions. 
+
+* Count the number of responses
+* Summarize the length of responses
+* Standard text processing
+* Unigrams
+  * Tokenize
+  * Stem
+  * Remove stop words using the onix, SMART, and snowball lexicons
+  * count frequency
+* Bigrams
+  * tokenize
+  * count frequency
+  * create a bigram graph
+* Trigrams
+  * tokenize
+  * count frequency
+
+Here a few assumptions that motivate our decisions:
+
+* The responses don't have much grammar. Instead, they are mostly lists of methods. Inconsistent responses are the biggest challenge. 
+
+* TF-IDF does not seem useful because there are so many documents and the documents are very short.
+* We don't remove stop words for bigrams and trigrams. For example, the word "in" in "difference in differences" seems important. 
+* We don't think lemmatization will affect results much since the responses are often so short. Instead, we stick with stemming, which is simpler. 
+
+# Question 2.2
+
+## Number of Responses
+
+```{r}
+#| label: q2.2-responses
+Q2_2_responses <- aea %>%
+  filter(!is.na(Q2_2)) %>%
+  nrow()
+
+```
+
+There are `r Q2_2_responses` non-missing responses. 
+
+```{r}
+#| label: q2.2-subset
+Q2_2 <- aea %>%
+  filter(!is.na(Q2_2)) %>%
+  select(ResponseId, Q2_2)
+
+```
+
+## Response Length
+
+```{r}
+#| label: q2.2-length
+Q2_2 %>%
+  mutate(
+    response_length_characters = str_length(Q2_2),
+    response_length_words = map_dbl(str_split(Q2_2, pattern = " "), .f = length)
+  ) %>%
+  summarize(
+    mean_characters = mean(response_length_characters),
+    median_characters = median(response_length_characters),
+    max_characters = max(response_length_characters), 
+    mean_words = mean(response_length_words),
+    median_words = median(response_length_words),
+    max_words = max(response_length_words), 
+  )
+
+```
+
+The responses are short as measured by words and characters. 
+
+## Pre-Process Text
+
+This section drops responses that were uninformative and converts all responses to lower case. 
+
+```{r}
+#| label: q2.2-preprocessing
+# remove Certain Responses
+Q2_2 <- Q2_2 %>%
+  filter(!Q2_2 %in% q2_dropped_responses)
+
+# convert to lower case
+Q2_2 <- Q2_2 %>%
+  mutate(Q2_2_clean = str_to_lower(Q2_2)) %>%
+  mutate(Q2_2_clean = str_squish(Q2_2_clean))
+
+```
+
+## Unigrams
+
+```{r}
+#| label: q2.2-unigrams
+Q2_2_unigrams <- Q2_2 %>%
+  unnest_tokens(output = word, input = Q2_2_clean) %>%
+  anti_join(stop_words, by = "word") %>%
+  mutate(word_stemmed = wordStem(word))
+
+Q2_2_unigrams %>%
+  count(word, sort = TRUE)
+
+```
+
+## Bigrams
+
+```{r}
+#| label: q2.2-bigrams
+Q2_2_bigrams <- Q2_2 %>%
+  unnest_tokens(output = bigram, input = Q2_2_clean, token = "ngrams", n = 2)
+  
+Q2_2_bigrams %>%
+  filter(!is.na(bigram)) %>%
+  count(bigram, sort = TRUE)
+
+```
+
+## Bigram Graph
+
+We choose `n > 4` because it drops very infrequent bigrams but leaves enough bigrams that the graph is informative. 
+
+```{r}
+#| label: q2_2_bigram-graph
+q2_2_bigram_graph <- Q2_2_bigrams %>%
+  filter(!is.na(bigram)) %>%
+  separate(col = bigram, into = c("word1", "word2"), sep = "\\s") %>%
+  count(word1, word2, sort = TRUE) %>%
+  filter(n > 4) %>%
+  graph_from_data_frame()
+
+set.seed(2)
+q2_2_bigram_graph %>%
+  ggraph(layout = "fr") +
+  geom_edge_link(alpha = 0.5) +
+  geom_node_point(alpha = 0.2, size = 10) +
+  geom_node_text(aes(label = name), size = 3) +
+  theme(plot.margin = margin(t = 20, r = 60, b = 20, l = 20))
+
+```
+
+## Trigrams
+
+```{r}
+#| label: q2.2-trigrams
+Q2_2_trigrams <- Q2_2 %>%
+  unnest_tokens(output = trigram, input = Q2_2_clean, token = "ngrams", n = 3)
+  
+Q2_2_trigrams %>%
+  filter(!is.na(trigram)) %>%
+  count(trigram, sort = TRUE)
+
+```
+
+## Dictionary
+
+Many responses are similar but not identical because of small differences in spelling and grammar. We manually construct a dictionary to align similar concepts. Then we repeat our summaries. 
+
+```{r}
+Q2_2 <- Q2_2 %>%
+  mutate(
+    Q2_2_clean = str_replace_all(string = Q2_2_clean, pattern = "did|dif-in-dif|diff-in-diff|diff in diff|difference-in-difference|difference-in-differences|differences-in-differences|differences in differences|difference in differences", replacement = "difference in difference"),
+    Q2_2_clean = str_replace_all(string = Q2_2_clean, pattern = "gmm|general method of moments (gmm)|generalize method of moments|generalized method of moment(gmm)", replacement = "generalized method of moments"),
+    Q2_2_clean = str_replace_all(string = Q2_2_clean, pattern = "machine-learning", replacement = "machine learning"),
+    Q2_2_clean = str_replace_all(string = Q2_2_clean, pattern = "quantile regressions", replacement = "quantile regression"),
+    Q2_2_clean = str_replace_all(string = Q2_2_clean, pattern = "difference in differences", replacement = "difference in difference"),
+    Q2_2_clean = str_replace_all(string = Q2_2_clean, pattern = "annalysis", replacement = "analysis"),
+    Q2_2_clean = str_replace_all(string = Q2_2_clean, pattern = "smm", replacement = "simulated method of moments"),
+    Q2_2_clean = str_replace_all(string = Q2_2_clean, pattern = "controls", replacement = "control")
+  )
+
+```
+
+### Unigrams
+
+```{r}
+#| label: q2.2-unigrams-dictionary
+Q2_2_dictionary_unigrams <- Q2_2 %>%
+  unnest_tokens(output = word, input = Q2_2_clean) %>%
+  anti_join(stop_words, by = "word") %>%
+  mutate(word_stemmed = wordStem(word))
+
+Q2_2_dictionary_unigrams %>%
+  count(word, sort = TRUE)
+
+```
+
+### Bigrams
+
+```{r}
+#| label: q2.2-bigrams-dictionary
+Q2_2_dictionary_bigrams <- Q2_2 %>%
+  unnest_tokens(output = bigram, input = Q2_2_clean, token = "ngrams", n = 2)
+  
+Q2_2_dictionary_bigrams %>%
+  filter(!is.na(bigram)) %>%
+  count(bigram, sort = TRUE)
+
+```
+
+### Bigram Graph
+
+We increase the threshold because there are many more bigrams than without the dictionary. 
+
+```{r}
+#| label: Q2_2_bigram-graph-dictionary
+Q2_2_dictionary_bigram_graph <- Q2_2_dictionary_bigrams %>%
+  filter(!is.na(bigram)) %>%
+  separate(col = bigram, into = c("word1", "word2"), sep = "\\s") %>%
+  count(word1, word2, sort = TRUE) %>%
+  filter(n > 5) %>%
+  graph_from_data_frame()
+
+set.seed(2)
+Q2_2_dictionary_bigram_graph %>%
+  ggraph(layout = "fr") +
+  geom_edge_link(
+    alpha = 0.5
+  ) +
+  geom_node_point(alpha = 0.2, size = 10) +
+  geom_node_text(aes(label = name), size = 3) +
+  theme(plot.margin = margin(t = 20, r = 20, b = 20, l = 20))
+
+ggsave(here("figures", "q2_2_bigram_graph.png"), width = 6.5, heigh = 4)
+
+```
+
+### Trigrams
+
+```{r}
+#| label: q2.2-trigrams-dictionary
+Q2_2_dictionary_trigrams <- Q2_2 %>%
+  unnest_tokens(output = trigram, input = Q2_2_clean, token = "ngrams", n = 3)
+  
+Q2_2_dictionary_trigrams %>%
+  filter(!is.na(trigram)) %>%
+  count(trigram, sort = TRUE)
+
+```
+
+## Conclusions
+
+The response rate for question 2.2 was high and respondents offered many suggested methods. 
+
+Difference in differences dominated all responses. Panel data was also a popular response. This suggests that users may want approaches that exceed what is possible on cross sectional data. 
+
+Respondents also highlighted more sophisticated methods for cross sectional data including generalized method of moments, machine learning (and many different machine learning algorithms), and quantile regression. 
+
+# Question 2.5
+
+## Number of Responses
+
+```{r}
+#| label: q2.5-response
+Q2_5_responses <- aea %>%
+  filter(!is.na(Q2_5)) %>%
+  nrow()
+
+```
+
+There are `r Q2_5_responses` non-missing responses. 
+
+```{r}
+#| label: q2.5-subset
+Q2_5 <- aea %>%
+  filter(!is.na(Q2_5)) %>%
+  select(ResponseId, Q2_5)
+
+```
+
+## Response Length
+
+```{r}
+#| label: q2.5-length
+Q2_5 %>%
+  mutate(
+    response_length_characters = str_length(Q2_5),
+    response_length_words = map_dbl(str_split(Q2_5, pattern = " "), .f = length)
+  ) %>%
+  summarize(
+    mean_characters = mean(response_length_characters),
+    median_characters = median(response_length_characters),
+    max_characters = max(response_length_characters), 
+    mean_words = mean(response_length_words),
+    median_words = median(response_length_words),
+    max_words = max(response_length_words), 
+  )
+
+```
+
+The responses are short as measured by words and characters. 
+
+## Pre-Process Text
+
+This section drops responses that were uninformative and converts all responses to lower case. 
+
+```{r}
+#| label: q2.5-preprocessing
+# remove Certain Responses
+Q2_5 <- Q2_5 %>%
+  filter(!Q2_5 %in% q5_dropped_responses)
+
+# convert to lower case
+Q2_5 <- Q2_5 %>%
+  mutate(Q2_5_clean = str_to_lower(Q2_5)) %>%
+  mutate(Q2_5_clean = str_squish(Q2_5_clean))
+
+```
+
+## Unigrams
+
+```{r}
+#| label: q2.5-unigrams
+Q2_5_unigrams <- Q2_5 %>%
+  unnest_tokens(output = word, input = Q2_5_clean) %>%
+  anti_join(stop_words, by = "word") %>%
+  mutate(word_stemmed = wordStem(word))
+
+Q2_5_unigrams %>%
+  count(word, sort = TRUE)
+
+```
+
+## Bigrams
+
+```{r}
+#| label: q2.5-bigrams
+Q2_5_bigrams <- Q2_5 %>%
+  unnest_tokens(output = bigram, input = Q2_5_clean, token = "ngrams", n = 2)
+  
+Q2_5_bigrams %>%
+  filter(!is.na(bigram)) %>%
+  count(bigram, sort = TRUE)
+
+```
+
+## Bigram Graph
+
+```{r}
+#| label: q2_5_bigram-graph
+Q2_5_bigram_graph <- Q2_5_bigrams %>%
+  filter(!is.na(bigram)) %>%
+  separate(col = bigram, into = c("word1", "word2"), sep = "\\s") %>%
+  count(word1, word2, sort = TRUE) %>%
+  filter(n > 3) %>%
+  graph_from_data_frame()
+
+set.seed(1)
+Q2_5_bigram_graph %>%
+  ggraph(layout = "fr") +
+  geom_edge_link(alpha = 0.5) +
+  geom_node_point(alpha = 0.2, size = 10) +
+  geom_node_text(aes(label = name), size = 3)
+
+
+```
+
+## Trigrams
+
+```{r}
+#| label: q2.5-trigrams
+Q2_5_trigrams <- Q2_5 %>%
+  unnest_tokens(output = trigram, input = Q2_5_clean, token = "ngrams", n = 3)
+  
+Q2_5_trigrams %>%
+  filter(!is.na(trigram)) %>%
+  count(trigram, sort = TRUE)
+
+```
+
+## Dictionary
+
+Many responses are similar but not identical because of small differences in spelling and grammar. We manually construct a dictionary to align similar concept. Then we repeat our summaries. 
+
+```{r}
+Q2_5 <- Q2_5 %>%
+  mutate(
+    Q2_5_dict = str_replace_all(string = Q2_5_clean, pattern = "f-tests (e.g., testing equality of coefficients)|f or related tests on model specification|f or wald statistics for joint coefficient tests|f-tests", replacement = "f tests"),
+    Q2_5_dict = str_replace_all(string = Q2_5_dict, pattern = "number of observations|degrees of freedom", replacement = "sample size"),
+    Q2_5_dict = str_replace_all(string = Q2_5_dict, pattern = "confidence intervals", replacement = "confidence interval"),
+    Q2_5_dict = str_replace_all(string = Q2_5_dict, pattern = "vifs", replacement = "vif")
+  )
+
+
+
+```
+
+
+### Unigrams
+
+```{r}
+#| label: q2.5-unigrams-dictionary
+Q2_5_dictionary_unigrams <- Q2_5 %>%
+  unnest_tokens(output = word, input = Q2_5_dict) %>%
+  anti_join(stop_words, by = "word") %>%
+  mutate(word_stemmed = wordStem(word))
+
+Q2_5_dictionary_unigrams %>%
+  count(word, sort = TRUE)
+
+```
+
+
+### Bigrams
+
+```{r}
+#| label: q2.5-bigrams-dictionary
+Q2_5_dictionary_bigrams <- Q2_5 %>%
+  unnest_tokens(output = bigram, input = Q2_5_clean, token = "ngrams", n = 2)
+  
+Q2_5_dictionary_bigrams %>%
+  filter(!is.na(bigram)) %>%
+  count(bigram, sort = TRUE)
+
+```
+
+### Bigram Graph
+
+```{r}
+#| label: q2_5_bigram-graph-dictionary
+Q2_5_dictionary_bigram_graph <- Q2_5_bigrams %>%
+  filter(!is.na(bigram)) %>%
+  separate(col = bigram, into = c("word1", "word2"), sep = "\\s") %>%
+  count(word1, word2, sort = TRUE) %>%
+  filter(n > 3) %>%
+  graph_from_data_frame()
+
+set.seed(1)
+Q2_5_dictionary_bigram_graph %>%
+  ggraph(layout = "fr") +
+  geom_edge_link(alpha = 0.5) +
+  geom_node_point(alpha = 0.2, size = 10) +
+  geom_node_text(aes(label = name), size = 3)
+
+ggsave(here("figures", "q2_5_bigram_graph.png"), width = 6.5, heigh = 4)
+
+```
+
+### Trigrams
+
+```{r}
+#| label: q2.5-trigrams-dictionary
+Q2_5_dictionary_trigrams <- Q2_5 %>%
+  unnest_tokens(output = trigram, input = Q2_5_clean, token = "ngrams", n = 3)
+  
+Q2_5_dictionary_trigrams %>%
+  filter(!is.na(trigram)) %>%
+  count(trigram, sort = TRUE)
+
+```
+
+## Software
+
+```{r}
+sessionInfo()
+
+```
+
+## Conclusions
+
+Question 2.5 has fewer responses and far less consensus than Question 2.2. Furthermore, many of the responses did not provide much beyond the question in 2.4. Confidence intervals can be constructed without releasing any additional information and we can include them. We included f-tests in the question but it came up several times. 
+
+Predicted values and the number of observations are novel responses worthy of consideration. 

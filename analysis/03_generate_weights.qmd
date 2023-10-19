@@ -1,0 +1,230 @@
+---
+title: "Make AEA survey anaylses data with weights"
+author-title: "Authors"
+authors: "Joshua Snoke"
+affiliation: "RAND Corp."
+date: today
+format:
+  html:
+    theme: www/urbn.scss
+    self-contained: true
+    code-fold: true
+    code-line-numbers: true
+    html-math-method: katex
+    df-print: paged
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    number-depth: 3
+    highlight-style: pygments
+#bibliography: references.bib
+execute: 
+  warning: false
+  message: false
+  fig-width: 6.5
+  fig-hieght: 4
+editor_options: 
+  chunk_output_type: console
+---
+
+# Generate Weights
+
+```{r}
+library(here)
+library(tidyverse)
+
+source(here('R', 'make_analysis_data.R'))
+
+```
+
+```{r}
+##################################
+## downselect to only weighting variables
+## and impute missing values (minimal)
+##################################
+
+## variables for weighting 
+weight_data = aea_analysis %>%
+  select(us = Q1_1,
+         degree = Q1_3,
+         experience = Q1_4,
+         employeer = Q1_5) %>%
+  mutate(employeer = case_when(employeer %in% c('For-profit business',
+                                                'Not-for-profit') ~ 'Industry',
+                               employeer %in% c('Federal government',
+                                                'State or local government') ~ 'Government',
+                               employeer == 'University or college' ~ 'Academic Institutions'),
+         degree = recode(degree,
+                         `Bachelors degree` = 'Bachelor’s degree',
+                         ## drop HS
+                         `High school or General Educational Development (GED)` = 'Bachelor’s degree',
+                         `Masters degree` = 'Master’s degree'))
+
+## simply impute the 13 individuals with some missing demographics
+impute_weight_data = mice::mice(weight_data %>%
+                                  mutate_all(as.factor), 
+                                method = 'cart', 
+                                maxit = 10,
+                                m = 1,
+                                seed = 692310) %>%
+  complete
+
+##################################
+## load in totals and run calibration
+##################################
+
+## get total AEA opt-in members
+aea_member_total = readxl::read_excel(here('data', 'memberData.xlsx'),
+                               sheet = 'Sample Size',
+                               col_names = TRUE)[1, 2] %>%
+  unlist
+
+
+## get totals loaded in and formatted
+degree_totals = read_csv(here('data', 'highest-degree_detailed.csv')) %>%
+  count(degree_simple, sort = TRUE, wt = n) %>%
+  ## drop 'other'
+  filter(degree_simple != 'other') %>%
+  mutate(n_prop = (n / sum(n)) * nrow(impute_weight_data))
+
+us_totals = readxl::read_excel(here('data', 'memberData.xlsx'),
+                               sheet = 'US',
+                               col_names = FALSE)
+colnames(us_totals) = c('us',
+                        'n')
+us_totals[1, 1] = 'Yes'
+# aea_member_total is the number of responses in the population data
+us_totals[1, 2] = (us_totals[1, 2] / aea_member_total) * nrow(impute_weight_data)
+us_totals[2, 1] = 'No'
+us_totals[2, 2] = nrow(impute_weight_data) - us_totals[1, 2]
+
+employeer_totals =  readxl::read_excel(here('data', 'memberData.xlsx'),
+                                       sheet = 'Employment Type',
+                                       col_names = FALSE)
+colnames(employeer_totals) = c('employeer',
+                               'n')
+employeer_totals = employeer_totals %>%
+  ## drop retired (assuming equal proportions) and collapse non-academic and non-gov levels
+  filter(employeer != 'Retired') %>%
+  mutate(employeer = case_when(employeer %in% c('Consulting',
+                                                'Business and Industry',
+                                                'Research Organizations',
+                                                'International Organizations',
+                                                'Non-Profit Organizations',
+                                                'Other') ~ 'Industry',
+                               TRUE ~ employeer)) %>%
+  group_by(employeer) %>%
+  summarize(n = sum(n)) %>%
+  mutate(n_prop = n / sum(n)* nrow(impute_weight_data))
+
+
+year_totals =  readxl::read_excel(here('data', 'memberData.xlsx'),
+                                  sheet = 'Year Highest Degree Awarded',
+                                  col_names = FALSE)
+colnames(year_totals) = c('year',
+                          'n')
+year_totals = year_totals %>%
+  # the year break align with the summary table from the original analysis
+  mutate(year = cut(year, c(1949, 2002, 2012, 2050),
+                    labels = c('Early-Career', 'Mid-Career', 'Late-Career'))) %>%
+  group_by(year) %>%
+  summarize(n = sum(n)) %>%
+  ungroup %>%
+  mutate(n_prop = n / sum(n)* nrow(impute_weight_data))
+```
+
+## combine totals into vector
+
+```{r}
+totals_vector = c(degree_totals$n_prop,
+                  us_totals$n,
+                  employeer_totals$n_prop,
+                  year_totals$n_prop) 
+names(totals_vector) = c(paste('degree', degree_totals$degree_simple, sep = ''),
+                         paste('us', us_totals$us, sep = ''),
+                         paste('employeer', employeer_totals$employeer, sep = ''),
+                         paste('experience', as.character(year_totals$year), sep = ''))
+
+temp_design = survey::svydesign(id = ~1, data = impute_weight_data, weights = NULL)
+temp_calibrate = survey::calibrate(temp_design, ~. - 1, totals_vector, force = TRUE)
+temp_weights = weights(temp_calibrate)
+
+```
+
+## trim
+
+```{r}
+trim_weights = temp_weights
+
+max_weight = quantile(temp_weights, 0.99)
+
+min_weight = quantile(temp_weights, 0.01)
+
+trim_weights[trim_weights > max_weight] = max_weight
+trim_weights[trim_weights < min_weight] = min_weight
+
+trim_weights = trim_weights * (sum(temp_weights) / sum(trim_weights))
+
+## recalibrate with trimmed weights to get the right totals
+final_design = survey::svydesign(id = ~1, data = impute_weight_data, weights = trim_weights)
+final_calibrate = survey::calibrate(final_design, ~. - 1, totals_vector, force = TRUE)
+final_weights = weights(final_calibrate)
+
+aea_analysis_weighted = aea_analysis %>%
+  mutate(final_weights = final_weights)
+
+write_csv(aea_analysis_weighted, here('data', 'aea_analysis_weighted.csv'))
+
+```
+
+## evaluate checks
+
+```{r}
+evaluate_weight_data = impute_weight_data %>%
+  mutate(weights = temp_weights,
+         trim_weights = trim_weights,
+         final_weights = final_weights)
+
+## us
+evaluate_weight_data %>%
+  group_by(us) %>%
+  summarize(n(),
+            sum(final_weights))
+
+us_totals
+
+## degree
+evaluate_weight_data %>%
+  group_by(degree) %>%
+  summarize(n(),
+            sum(final_weights))
+
+degree_totals
+
+## experience
+evaluate_weight_data %>%
+  group_by(experience) %>%
+  summarize(n(),
+            sum(final_weights))
+
+year_totals
+
+## employeer
+evaluate_weight_data %>%
+  group_by(employeer) %>%
+  summarize(n(),
+            sum(final_weights))
+
+employeer_totals
+
+## DEFF
+mean(evaluate_weight_data$weights ^ 2)
+mean(evaluate_weight_data$trim_weights ^ 2)
+mean(evaluate_weight_data$final_weights ^ 2)
+
+```
+
+```{r}
+sessionInfo()
+
+```

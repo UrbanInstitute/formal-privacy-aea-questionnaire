@@ -1,0 +1,853 @@
+---
+title: "AEA Formal Privacy Questionnaire Analysis"
+author-title: "Authors"
+authors: "Joshua Snoke"
+affiliation: "RAND Corportation"
+date: today
+format:
+  html:
+    theme: www/urbn.scss
+    self-contained: true
+    code-fold: true
+    code-line-numbers: true
+    html-math-method: katex
+    df-print: paged
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    number-depth: 3
+    highlight-style: pygments
+execute: 
+  warning: false
+  message: false
+  fig-width: 6.5
+  fig-hieght: 4
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r opts, echo = FALSE}
+knitr::opts_chunk$set(
+  fig.path = "../figures/"
+)
+```
+
+```{r}
+library(here)
+library(tidyverse)
+library(readxl)
+library(freqtables)
+library(srvyr)
+
+```
+
+```{r}
+aea_analysis_weighted = read_csv(here('data', 'aea_analysis_weighted.csv')) %>%
+  select(US = Q1_1,
+         student = Q1_2,
+         degree = Q1_3,
+         year = Q1_4,
+         employeer = Q1_5,
+         Peer_reviewed = Q1_6,
+         JEL_Target = Q1_7_target,
+         familiarity = Q3_1,
+         census = Q3_3,
+         distorts = Q3_7,
+         needed = Q3_8,
+         final_weights,
+         signif_mis = Q4_1_1,
+         sign_mis = Q4_2_1,
+         relative_bias = Q4_3_1,
+         cir = Q4_4_1) %>%
+  mutate(signif_miss = is.na(signif_mis),
+         sign_miss = is.na(sign_mis),
+         rb_miss = is.na(relative_bias),
+         cir_miss = is.na(cir),
+         all_miss = case_when(signif_miss == TRUE &
+                                sign_miss == TRUE &
+                                rb_miss == TRUE &
+                                cir_miss == TRUE ~ 1,
+                              TRUE ~ 0)) %>%
+  select(-contains('Q4')) %>%
+  as_survey(weights = final_weights)
+
+```
+
+# Paper Results
+
+## Table 1
+
+```{r}
+## US Residents
+aea_analysis_weighted %>%
+  group_by(US) %>%
+  summarize(n = n(),
+            survey_prop(vartype = c('ci'))) %>%
+  mutate(sample_prop = n / sum(n)) %>%
+  select(US, 
+         sample_prop, 
+         coef)
+
+## Students
+aea_analysis_weighted %>%
+  group_by(student) %>%
+  summarize(n = n()) %>%
+  mutate(sample_prop = n / sum(n)) %>%
+  select(student, 
+         sample_prop)
+
+## Highest Degree Completed
+aea_analysis_weighted %>%
+  group_by(degree) %>%
+  summarize(n = n(),
+            survey_prop(vartype = c('ci'))) %>%
+  mutate(sample_prop = n / sum(n)) %>%
+  select(degree, 
+         sample_prop, 
+         coef)
+
+## Year of Degree Completion
+aea_analysis_weighted %>%
+  group_by(year) %>%
+  summarize(n = n(),
+            survey_prop(vartype = c('ci'))) %>%
+  mutate(sample_prop = n / sum(n)) %>%
+  select(year, 
+         sample_prop, 
+         coef)
+
+## Primary Employer
+aea_analysis_weighted %>%
+  group_by(employeer) %>%
+  summarize(n = n(),
+            survey_prop(vartype = c('ci'))) %>%
+  mutate(sample_prop = n / sum(n)) %>%
+  select(employeer, 
+         sample_prop, 
+         coef)
+
+## Peer Reviewed in Last Five Years
+aea_analysis_weighted %>%
+  group_by(Peer_reviewed) %>%
+  summarize(n = n()) %>%
+  mutate(sample_prop = n / sum(n)) %>%
+  select(Peer_reviewed, 
+         sample_prop)
+
+## JEL Group
+aea_analysis_weighted %>%
+  group_by(JEL_Target) %>%
+  summarize(n = n()) %>%
+  mutate(sample_prop = n / sum(n)) %>%
+  select(JEL_Target, 
+         sample_prop)
+
+```
+
+## Table 2
+
+```{r}
+aea_analysis_weighted %>%
+  filter(!is.na(familiarity)) %>%
+  group_by(familiarity) %>%
+  summarize(n(),
+            survey_prop(vartype = c('ci')))
+
+aea_analysis_weighted %>%
+  filter(!is.na(census)) %>%
+  group_by(census) %>%
+  summarize(n(),
+            survey_prop(vartype = c('ci')))
+```
+
+## Table 3
+
+```{r}
+aea_analysis_weighted %>%
+  filter(!is.na(distorts)) %>%
+  group_by(distorts) %>%
+  summarize(n(),
+            survey_prop(vartype = c('ci')))
+
+aea_analysis_weighted %>%
+  filter(!is.na(needed)) %>%
+  group_by(needed) %>%
+  summarize(n(),
+            survey_prop(vartype = c('ci')))
+```
+
+## Table 4
+
+```{r}
+## distorts/needed
+## two-way table
+aea_analysis_weighted %>%
+  filter(!is.na(distorts),
+         !is.na(needed)) %>%
+  group_by(interaction(distorts, needed)) %>%
+  summarize(n(),
+            survey_prop(vartype = c('ci')))
+```
+
+## Figure 1
+
+```{r}
+collapsed_familiar = aea_analysis_weighted %>%
+  filter(!is.na(familiarity)) %>%
+  mutate(familiarity = factor(case_when(familiarity %in% c('Feel confident implementing these methods on my own',
+                                                           'Have read an academic paper on the topic') ~ 'Research Familiarity',
+                                        familiarity %in% c('Have heard the term but am not familiar with any details',
+                                                           'Have never heard of the concept') ~ 'No Familiarity',
+                                        familiarity %in% c('Have read a blog, newspaper, or non-academic report or discussion on the topic') ~ 'Read Blog/Discussion'),
+                              levels = c('No Familiarity',
+                                         'Read Blog/Discussion',
+                                         'Research Familiarity')))
+
+## combined plot df
+## start with target users
+familiarity_plot_df = collapsed_familiar %>%
+  group_by(JEL_Target,
+           familiarity) %>%
+  summarize(n(),
+            survey_prop(vartype = c('ci'))) %>%
+  mutate(JEL_Target = recode(JEL_Target,
+                             `0` = 'Other',
+                             `1` = 'Federal Micro Data Users'),
+         which_var = 'JEL Group') %>%
+  rename(variable = JEL_Target) %>%
+  ## location
+  bind_rows(collapsed_familiar %>%
+              group_by(US,
+                       familiarity) %>%
+              summarize(n(),
+                        survey_prop(vartype = c('ci'))) %>%
+              mutate(US = recode(US,
+                                 `No` = 'Not U.S. Resident',
+                                 `Yes` = 'U.S. Resident'),
+                     which_var = 'Location') %>%
+              rename(variable = US)) %>%
+  ## experience
+  bind_rows(collapsed_familiar %>% 
+              filter(!is.na(year)) %>%
+              group_by(year, 
+                       familiarity) %>%
+              summarize(n(),
+                        survey_prop(vartype = c('ci'))) %>%
+              mutate(which_var = 'Experience') %>%
+              rename(variable = year)) %>%
+  ## employer
+  bind_rows(collapsed_familiar %>% 
+              mutate(employeer = recode(employeer,
+                                        `State or local government` = 'Federal, State, or Local Gov.',
+                                        `Federal government` = 'Federal, State, or Local Gov.',
+                                        `Not-for-profit` = 'Industry (For or Not-for Profit)',
+                                        `For-profit business` = 'Industry (For or Not-for Profit)')) %>%
+              group_by(employeer, 
+                       familiarity) %>%
+              summarize(n(),
+                        survey_prop(vartype = c('ci'))) %>%
+              mutate(which_var = 'Employer') %>%
+              rename(variable = employeer)) %>%
+  ## order levels
+  mutate(variable = factor(variable,
+                           levels = c('Early-Career',
+                                      'Mid-Career',
+                                      'Late-Career',
+                                      'Not U.S. Resident',
+                                      'U.S. Resident',
+                                      'Other',
+                                      'Federal Micro Data Users',
+                                      'Industry (For or Not-for Profit)',
+                                      'Federal, State, or Local Gov.',
+                                      'University or college')),
+         which_var = factor(which_var,
+                            levels = c('JEL Group',
+                                       'Location',
+                                       'Experience',
+                                       'Employer')))
+
+
+familiarity_plot_df %>%
+  ggplot(aes(x = coef, y = variable, color = familiarity)) +
+  theme_bw(base_size = 10) +
+  theme(legend.position = 'top') +
+  geom_pointrange(aes(xmin = `_low`, xmax = `_upp`), position = position_dodge(0.2)) +
+  scale_color_brewer('Familiarity', type = 'qual', palette = 6) +
+  scale_x_continuous(breaks = seq(0, 1, 0.1), labels = scales::percent) +
+  ylab('Respondent Characteristic') +
+  xlab('Percent Response') +
+  facet_grid(rows = 'which_var', scales = 'free_y')
+
+ggsave(
+  here('figures', 'familiarity_by_demo.png'), 
+  width = 6.5, 
+  height = 5
+)
+
+```
+
+## Figure 2
+
+```{r}
+## combine all demographics for plot
+## first jel groups
+distorts_plot_df = aea_analysis_weighted %>%
+  filter(!is.na(distorts)) %>%
+  group_by(JEL_Target, distorts) %>%
+  summarize(n(),
+            survey_prop(vartype = c('ci'))) %>%
+  filter(distorts != 'I dont know') %>%
+  mutate(JEL_Target = recode(JEL_Target,
+                             `0` = 'Other',
+                             `1` = 'Federal Micro Data Users'),
+         which_var = 'JEL Group') %>%
+  rename(variable = JEL_Target) %>%
+  ## us residents
+  bind_rows(aea_analysis_weighted %>% 
+              filter(!is.na(distorts)) %>%
+              group_by(US, distorts) %>%
+              summarize(n(),
+                        survey_prop(vartype = c('ci'))) %>%
+              filter(distorts != 'I dont know') %>%
+              mutate(US = recode(US,
+                                 `No` = 'Not U.S. Resident',
+                                 `Yes` = 'U.S. Resident'),
+                     which_var = 'Location') %>%
+              rename(variable = US)) %>%
+  ## experience
+  bind_rows(aea_analysis_weighted %>% 
+              filter(!is.na(distorts)) %>%
+              group_by(year, distorts) %>%
+              summarize(n(),
+                        survey_prop(vartype = c('ci'))) %>%
+              filter(distorts != 'I dont know') %>%
+              mutate(which_var = 'Experience') %>%
+              rename(variable = year)) %>%
+  ## employer
+  bind_rows(aea_analysis_weighted %>% 
+              filter(!is.na(distorts)) %>%
+              mutate(employeer = recode(employeer,
+                                        `State or local government` = 'Federal, State, or Local Gov.',
+                                        `Federal government` = 'Federal, State, or Local Gov.',
+                                        `Not-for-profit` = 'Industry (For or Not-for Profit)',
+                                        `For-profit business` = 'Industry (For or Not-for Profit)')) %>%
+              group_by(employeer, distorts) %>%
+              summarize(n(),
+                        survey_prop(vartype = c('ci'))) %>%
+              filter(distorts != 'I dont know') %>%
+              mutate(which_var = 'Employer') %>%
+              rename(variable = employeer)) %>%
+  ## order levels
+  mutate(variable = factor(variable,
+                           levels = c('Early-Career',
+                                      'Mid-Career',
+                                      'Late-Career',
+                                      'Not U.S. Resident',
+                                      'U.S. Resident',
+                                      'Other',
+                                      'Federal Micro Data Users',
+                                      'Industry (For or Not-for Profit)',
+                                      'Federal, State, or Local Gov.',
+                                      'University or college')),
+         which_var = factor(which_var,
+                            levels = c('JEL Group',
+                                       'Location',
+                                       'Experience',
+                                       'Employer')))
+
+## needed
+## combine all demographics for plot
+## first jel groups
+needed_plot_df = aea_analysis_weighted %>%
+  filter(!is.na(needed)) %>%
+  group_by(JEL_Target, needed) %>%
+  summarize(n(),
+            survey_prop(vartype = c('ci'))) %>%
+  filter(needed != 'I dont know') %>%
+  mutate(JEL_Target = recode(JEL_Target,
+                             `0` = 'Other',
+                             `1` = 'Federal Micro Data Users'),
+         which_var = 'JEL Group') %>%
+  rename(variable = JEL_Target) %>%
+  ## us residents
+  bind_rows(aea_analysis_weighted %>% 
+              filter(!is.na(needed)) %>%
+              group_by(US, needed) %>%
+              summarize(n(),
+                        survey_prop(vartype = c('ci'))) %>%
+              filter(needed != 'I dont know') %>%
+              mutate(US = recode(US,
+                                 `No` = 'Not U.S. Resident',
+                                 `Yes` = 'U.S. Resident'),
+                     which_var = 'Location') %>%
+              rename(variable = US)) %>%
+  ## experience
+  bind_rows(aea_analysis_weighted %>% 
+              filter(!is.na(needed)) %>%
+              group_by(year, needed) %>%
+              summarize(n(),
+                        survey_prop(vartype = c('ci'))) %>%
+              filter(needed != 'I dont know') %>%
+              mutate(which_var = 'Experience') %>%
+              rename(variable = year)) %>%
+  ## employer
+  bind_rows(aea_analysis_weighted %>% 
+              filter(!is.na(needed)) %>%
+              mutate(employeer = recode(employeer,
+                                        `State or local government` = 'Federal, State, or Local Gov.',
+                                        `Federal government` = 'Federal, State, or Local Gov.',
+                                        `Not-for-profit` = 'Industry (For or Not-for Profit)',
+                                        `For-profit business` = 'Industry (For or Not-for Profit)')) %>%
+              group_by(employeer, needed) %>%
+              summarize(n(),
+                        survey_prop(vartype = c('ci'))) %>%
+              filter(needed != 'I dont know') %>%
+              mutate(which_var = 'Employer') %>%
+              rename(variable = employeer)) %>%
+  ## order levels
+  mutate(variable = factor(variable,
+                           levels = c('Early-Career',
+                                      'Mid-Career',
+                                      'Late-Career',
+                                      'Not U.S. Resident',
+                                      'U.S. Resident',
+                                      'Other',
+                                      'Federal Micro Data Users',
+                                      'Industry (For or Not-for Profit)',
+                                      'Federal, State, or Local Gov.',
+                                      'University or college')),
+         which_var = factor(which_var,
+                            levels = c('JEL Group',
+                                       'Location',
+                                       'Experience',
+                                       'Employer')))
+
+
+## COMBINED
+distorts_plot_df %>% 
+  rename(response = distorts) %>%
+  mutate(question = 'DP Distorts Too Much') %>%
+  bind_rows(needed_plot_df %>% 
+              rename(response = needed) %>%
+              mutate(question = 'DP Needed for Privacy')) %>%
+  ggplot(aes(x = coef, color = response, y = variable)) +
+  theme_bw(base_size = 10) +
+  theme(legend.position = 'top') +
+  geom_pointrange(aes(xmin = `_low`, xmax = `_upp`), position = position_dodge(0.2)) +
+  scale_color_brewer('Question Response', type = 'qual', palette = 6) +
+  scale_x_continuous(labels = scales::percent) +
+  ylab('Respondent Characteristic') +
+  xlab('Percent Agree or Disagree') + 
+  facet_grid(rows = vars(which_var), cols = vars(question), scales = 'free_y')
+
+ggsave(
+  here('figures', 'needed_distorts_by_demo.png'), 
+  width = 6.5, 
+  height = 5
+)
+
+```
+
+## Figure 3
+
+```{r}
+## visual options
+familiarity_plot_df = aea_analysis_weighted %>%
+  filter(!is.na(distorts),
+         !is.na(familiarity)) %>%group_by(familiarity, 
+           distorts) %>%
+  summarize(n(),
+            survey_prop(vartype = c('ci'))) %>%
+  mutate(which_q = 'DP Distorts Too Much') %>%
+  rename(question = distorts) %>%
+  bind_rows(aea_analysis_weighted %>%
+              filter(!is.na(needed),
+                     !is.na(familiarity)) %>%group_by(familiarity, 
+                       needed) %>%
+              summarize(n(),
+                        survey_prop(vartype = c('ci'))) %>%
+              mutate(which_q = 'DP Needed for Privacy') %>%
+              rename(question = needed)) %>%
+  mutate(familiarity = factor(recode(familiarity,
+                                     `Feel confident implementing these methods on my own` = 'Confident Implementing Methods',
+                                     `Have heard the term but am not familiar with any details` = 'Heard Term but Not Familiar',
+                                     `Have read a blog, newspaper, or non-academic report or discussion on the topic` = 'Read Blog/Discussion',
+                                     `Have read an academic paper on the topic` = 'Read Academic Paper',
+                                     `Have never heard of the concept` = 'Never Heard of Concept'),
+                              levels = c('Never Heard of Concept',
+                                         'Heard Term but Not Familiar',
+                                         'Read Blog/Discussion',
+                                         'Read Academic Paper',
+                                         'Confident Implementing Methods')),
+         question = recode(question,
+                           `I dont know` = "Don't Know"))
+
+familiarity_plot_df %>%
+  filter(question != "Don't Know") %>%
+  ggplot(aes(x = coef, color = question, y = familiarity)) +
+  theme_bw(base_size = 12) +
+  theme(legend.position = 'top') +
+  geom_pointrange(aes(xmin = `_low`, xmax = `_upp`), position = position_dodge(0.2)) +
+  scale_color_brewer('Question Response', type = 'qual', palette = 6) +
+  ylab('Level of Familiarity') +
+  xlab('Percent Agree or Disagree') + 
+  scale_x_continuous(breaks = seq(0, 1, 0.2), labels = scales::percent) +
+  facet_grid(cols = vars(which_q))
+
+ggsave(
+  here('figures', 'opinions_by_familiarity.png'), 
+  width = 6.5, 
+  height = 5
+)
+
+```
+
+## Figure 7
+
+```{r}
+## whether someone answered the 
+## last set of Qs
+## Response rates by groups
+aea_analysis_weighted %>%
+  filter(!is.na(familiarity)) %>%
+  mutate(familiarity = !(familiarity %in% c('Have heard the term but am not familiar with any details',
+                                            'Have never heard of the concept'))) %>%
+  group_by(JEL_Target,
+           familiarity) %>%
+  reframe(total = n() - sum(all_miss),
+          response_rate = 1 - mean(all_miss)) %>% 
+  mutate(group = case_when(JEL_Target == 1 & familiarity == 'TRUE' ~ 'Familiar with DP and Federal Micro Data User',
+                           JEL_Target == 0 & familiarity == 'TRUE' ~ 'Familiar with DP and Other JEL Group',
+                           JEL_Target == 1 & familiarity == 'FALSE' ~  'Not Familiar with DP and Federal Micro Data User',
+                           JEL_Target == 0 & familiarity == 'FALSE' ~ 'Not Familiar with DP and Other JEL Group'),
+         JEL_Target = recode(JEL_Target, 
+                             `0` = 'Other JEL Group',
+                             `1` = 'Federal Micro Data User'),
+         familiarity = case_when(familiarity == TRUE ~ 'Familiar with DP',
+                                 familiarity == FALSE ~ 'Not Familiar with DP'),
+         text_response = paste(round(response_rate * 100, 1), '%', sep = '')) %>%
+  #ggplot(aes(response_rate * 100, group)) +
+  ggplot(aes(x = JEL_Target, y = familiarity, fill = response_rate * 100)) +
+  geom_bin_2d() +
+  geom_text(aes(label = text_response), size = 10, color = 'white') +
+  #geom_col() +
+  theme_bw(base_size = 14) +
+  scale_fill_continuous(name = "Response Rate") +
+  ylab('') +
+  xlab('') +
+  labs(
+    title = 'Respones Rates by Groups',
+    x = '',
+    y = '',
+  ) +
+  theme(panel.grid = element_blank(),
+        panel.border = element_blank(),
+        legend.position = 'none')
+
+ggsave(
+  here('figures', 'error_thresholds_response_rate.png'), 
+  width = 6.5, 
+  height = 4
+)
+
+
+
+```
+
+## Figure 8
+
+```{r}
+## get maximum tolerance for error metrics
+## first run for everyone
+## then run separately for JEL target group
+
+## compute percent at threshold function
+threshold_func = function(threshold, input_data, group_var = '', input_var){
+  input_data %>%
+    filter(!is.na(!!sym(input_var))) %>%
+    group_by(!!sym(group_var)) %>%
+    reframe(survey_mean(!!sym(input_var) >= threshold)) %>% 
+    pull(coef)
+}
+
+## get range of metrics for 95% quantile
+quantile(aea_analysis_weighted$variables$signif_mis, c(0.01, 0.95), na.rm = TRUE)
+quantile(aea_analysis_weighted$variables$sign_mis, c(0.01, 0.95), na.rm = TRUE)
+quantile(aea_analysis_weighted$variables$relative_bias, c(0.01, 0.95), na.rm = TRUE)
+quantile(aea_analysis_weighted$variables$cir, c(0.01, 0.95), na.rm = TRUE)
+
+## set thresholds for plot with spacing that scales ^ 2
+signif_vec = seq(0, sqrt(50), length.out = 20) ^ 2
+sign_vec = seq(0, sqrt(25), length.out = 20) ^ 2
+rb_vec = seq(0, sqrt(50), length.out = 20) ^ 2
+cir_vec = exp(seq(0, sqrt(log(24)), length.out = 20) ^ 2)
+
+## run for everyone
+all_signif_point_est = sapply(signif_vec, 
+                              threshold_func, 
+                              input_data = aea_analysis_weighted, 
+                              input_var = 'signif_mis') 
+
+all_sign_point_est = sapply(sign_vec, 
+                            threshold_func, 
+                            input_data = aea_analysis_weighted,
+                            input_var = 'sign_mis') 
+
+all_rb_point_est = sapply(rb_vec, 
+                          threshold_func, 
+                          input_data = aea_analysis_weighted, 
+                          input_var = 'relative_bias') 
+
+all_cir_point_est = sapply(cir_vec, 
+                           threshold_func, 
+                           input_data = aea_analysis_weighted, 
+                           input_var = 'cir') 
+
+## run for jel/familiar target
+target_signif_point_est = sapply(signif_vec, 
+                                 threshold_func, 
+                                 input_data = aea_analysis_weighted, 
+                                 group_var = 'JEL_Target',
+                                 input_var = 'signif_mis') 
+
+target_sign_point_est = sapply(sign_vec, 
+                               threshold_func, 
+                               input_data = aea_analysis_weighted, 
+                               group_var = 'JEL_Target',
+                               input_var = 'sign_mis') 
+
+target_rb_point_est = sapply(rb_vec, 
+                          threshold_func, 
+                          input_data = aea_analysis_weighted, 
+                          group_var = 'JEL_Target', 
+                          input_var = 'relative_bias') 
+
+target_cir_point_est = sapply(cir_vec, 
+                              threshold_func, 
+                              input_data = aea_analysis_weighted, 
+                              group_var = 'JEL_Target',
+                              input_var = 'cir') 
+
+
+## bootstrap q for each value of rb and cir
+n_boot = 100
+all_signif_boot_quant = all_sign_boot_quant = all_rb_boot_quant = all_cir_boot_quant = 
+  target_signif_boot_quant = target_sign_boot_quant = target_rb_boot_quant = target_cir_boot_quant = vector('list', n_boot)
+set.seed(412368)
+timeIn = proc.time()
+for(a in 1:n_boot){
+  all_boot_temp = aea_analysis_weighted[sample(1:nrow(aea_analysis_weighted), 
+                                                  nrow(aea_analysis_weighted), 
+                                                  replace = TRUE), ]
+  
+  all_signif_boot_quant[[a]] = tibble(q = sapply(signif_vec, 
+                                                 threshold_func, 
+                                                 input_data = all_boot_temp, 
+                                                 input_var = 'signif_mis'),
+                                      threshold = signif_vec)
+  
+  all_sign_boot_quant[[a]] = tibble(q = sapply(sign_vec, 
+                                               threshold_func, 
+                                               input_data = all_boot_temp, 
+                                               input_var = 'sign_mis'),
+                                    threshold = sign_vec)
+  
+  all_rb_boot_quant[[a]] = tibble(q = sapply(rb_vec, 
+                                             threshold_func, 
+                                             input_data = all_boot_temp, 
+                                             input_var = 'relative_bias'),
+                                  threshold = rb_vec)
+  
+  all_cir_boot_quant[[a]] = tibble(q = sapply(cir_vec, 
+                                              threshold_func, 
+                                              input_data = all_boot_temp, 
+                                              input_var = 'cir'),
+                                   threshold = cir_vec)
+  
+  target_signif_boot_quant[[a]] = as_tibble(t(sapply(signif_vec, 
+                                                     threshold_func, 
+                                                     input_data = all_boot_temp, 
+                                                     group_var = 'JEL_Target',
+                                                     input_var = 'signif_mis'))) %>%
+    mutate(threshold = signif_vec) %>%
+    rename(Other = 'V1',
+           Target = 'V2')
+  
+  target_sign_boot_quant[[a]] = as_tibble(t(sapply(sign_vec, 
+                                                   threshold_func, 
+                                                   input_data = all_boot_temp, 
+                                                   group_var = 'JEL_Target',
+                                                   input_var = 'sign_mis'))) %>%
+    mutate(threshold = sign_vec) %>%
+    rename(Other = 'V1',
+           Target = 'V2')
+  
+  target_rb_boot_quant[[a]] = as_tibble(t(sapply(rb_vec, 
+                                                 threshold_func, 
+                                                 input_data = all_boot_temp, 
+                                                 group_var = 'JEL_Target',
+                                                 input_var = 'relative_bias'))) %>%
+    mutate(threshold = rb_vec) %>%
+    rename(Other = 'V1',
+           Target = 'V2')
+
+  target_cir_boot_quant[[a]] = as_tibble(t(sapply(cir_vec, 
+                                                  threshold_func, 
+                                                  input_data = all_boot_temp, 
+                                                  group_var = 'JEL_Target',
+                                                  input_var = 'cir'))) %>%
+    mutate(threshold = cir_vec) %>%
+    rename(Other = 'V1',
+           Target = 'V2')
+  
+  if(a %% 10 == 0){
+    cat(a, '\n')
+  }
+}
+timeOut = proc.time() - timeIn
+timeOut
+
+
+signif_bootstrap = bind_rows(all_signif_boot_quant) %>%
+  group_by(threshold) %>%
+  reframe(lower = quantile(q, 0.05),
+          upper = quantile(q, 0.95)) %>%
+  mutate(estimate = all_signif_point_est,
+         group = 'All') %>%
+  bind_rows(bind_rows(target_signif_boot_quant) %>%
+              pivot_longer(c(Other, Target), names_to = 'group', values_to = 'q') %>%
+              group_by(threshold,
+                       group) %>%
+              reframe(lower = quantile(q, 0.05),
+                      upper = quantile(q, 0.95)) %>%
+              left_join(as_tibble(t(target_signif_point_est)) %>%
+                          mutate(threshold = signif_vec) %>%
+                          rename(Other = 'V1', Target = 'V2') %>% 
+                          pivot_longer(c(Other, Target), names_to = 'group', values_to = 'estimate'),
+                        by = c('group', 'threshold')))
+
+sign_bootstrap = bind_rows(all_sign_boot_quant) %>%
+  group_by(threshold) %>%
+  reframe(lower = quantile(q, 0.05),
+          upper = quantile(q, 0.95)) %>%
+  mutate(estimate = all_sign_point_est,
+         group = 'All') %>%
+  bind_rows(bind_rows(target_sign_boot_quant) %>%
+              pivot_longer(c(Other, Target), names_to = 'group', values_to = 'q') %>%
+              group_by(threshold,
+                       group) %>%
+              reframe(lower = quantile(q, 0.05),
+                      upper = quantile(q, 0.95)) %>%
+              left_join(as_tibble(t(target_sign_point_est)) %>%
+                          mutate(threshold = sign_vec) %>%
+                          rename(Other = 'V1', Target = 'V2') %>% 
+                          pivot_longer(c(Other, Target), names_to = 'group', values_to = 'estimate'),
+                        by = c('group', 'threshold')))
+
+rb_bootstrap = bind_rows(all_rb_boot_quant) %>%
+  group_by(threshold) %>%
+  reframe(lower = quantile(q, 0.05),
+          upper = quantile(q, 0.95)) %>%
+  mutate(estimate = all_rb_point_est,
+         group = 'All') %>%
+  bind_rows(bind_rows(target_rb_boot_quant) %>%
+              pivot_longer(c(Other, Target), names_to = 'group', values_to = 'q') %>%
+              group_by(threshold,
+                       group) %>%
+              reframe(lower = quantile(q, 0.05),
+                      upper = quantile(q, 0.95)) %>%
+              left_join(as_tibble(t(target_rb_point_est)) %>%
+                          mutate(threshold = rb_vec) %>%
+                          rename(Other = 'V1', Target = 'V2') %>% 
+                          pivot_longer(c(Other, Target), names_to = 'group', values_to = 'estimate'),
+                        by = c('group', 'threshold')))
+
+cir_bootstrap = bind_rows(all_cir_boot_quant) %>%
+  group_by(threshold) %>%
+  reframe(lower = quantile(q, 0.05),
+          upper = quantile(q, 0.95)) %>%
+  mutate(estimate = all_cir_point_est,
+         group = 'All') %>%
+  bind_rows(bind_rows(target_cir_boot_quant) %>%
+              pivot_longer(c(Other, Target), names_to = 'group', values_to = 'q') %>%
+              group_by(threshold,
+                       group) %>%
+              reframe(lower = quantile(q, 0.05),
+                      upper = quantile(q, 0.95)) %>%
+              left_join(as_tibble(t(target_cir_point_est)) %>%
+                          mutate(threshold = cir_vec) %>%
+                          rename(Other = 'V1', Target = 'V2') %>% 
+                          pivot_longer(c(Other, Target), names_to = 'group', values_to = 'estimate'),
+                        by = c('group', 'threshold')))
+
+
+## plot with everyone
+rb_bootstrap %>%
+  mutate(metric = 'Absolute Relative Bias') %>%
+  bind_rows(signif_bootstrap %>%
+              mutate(metric = 'Percent Significance Mismatch')) %>%
+  bind_rows(sign_bootstrap %>%
+              mutate(metric = 'Percent Sign Mismatch')) %>%
+  bind_rows(cir_bootstrap %>%
+              mutate(metric = 'Log Confidence Interval Ratio',
+                     threshold = log(threshold))) %>%
+  filter(group == 'All') %>%
+  ggplot(aes(x = threshold, y = estimate)) +
+  geom_line() +
+  geom_point(size = 2, color = '#e41a1c') +
+  geom_ribbon(aes(ymax = upper, ymin = lower), linetype = 0, alpha = 0.2) +
+  theme_bw(base_size = 10) +
+  scale_y_continuous(name = "Percent of Respondents Accepting Noise up to Threshold", breaks = seq(0, 1, 0.1), labels = scales::percent) +
+  scale_x_continuous(name = 'Error Tolerance', n.breaks = 6) +
+  theme(legend.position = 'none') +
+  xlab('Error Tolerance') +
+  facet_wrap(~metric, scales = 'free')
+
+ggsave(
+  here('figures', 'error_thresholds_all.png'), 
+  width = 6.5, 
+  height = 5
+)
+
+```
+
+## Figure 9
+
+```{r}
+## plot with both groups 
+rb_bootstrap %>%
+  mutate(metric = 'Absolute Relative Bias') %>%
+  bind_rows(signif_bootstrap %>%
+              mutate(metric = 'Percent Significance Mismatch')) %>%
+  bind_rows(sign_bootstrap %>%
+              mutate(metric = 'Percent Sign Mismatch')) %>%
+  bind_rows(cir_bootstrap %>%
+              mutate(metric = 'Log Confidence Interval Ratio',
+                     threshold = log(threshold))) %>%
+  filter(group != 'All') %>%
+  mutate(group = recode(group,
+                        Target = 'Federal Micro Data Users')) %>%
+  ggplot(aes(x = threshold, y = estimate, color = group)) +
+  geom_line() +
+  geom_point(size = 2) +
+  theme_bw(base_size = 10) +
+  scale_y_continuous(name = "Percent of Respondents Accepting Noise up to Threshold", breaks = seq(0, 1, 0.1), labels = scales::percent) +
+  scale_x_continuous(name = 'Error Tolerance', n.breaks = 6) +
+  scale_color_brewer('JEL Group', type = 'qual', palette = 6) +
+  xlab('Error Tolerance') +
+  facet_wrap(~metric, scales = 'free') +
+  theme(legend.position = 'top')
+
+ggsave(
+  here('figures', 'error_thresholds_other_and_target.png'), 
+  width = 6.5, 
+  height = 5
+)
+
+```
+
+
+```{r}
+sessionInfo()
+
+```
